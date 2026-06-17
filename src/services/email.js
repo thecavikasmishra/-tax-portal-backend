@@ -1,31 +1,19 @@
 // src/services/email.js
-const nodemailer = require('nodemailer');
+const { Resend } = require('resend');
 
-let transporter = null;
+const resend = new Resend(process.env.RESEND_API_KEY);
 
-function getTransporter() {
-  if (transporter) return transporter;
-  transporter = nodemailer.createTransport({
-    host: 'smtp.gmail.com',
-    port: 465,
-    secure: true,
-    auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASSWORD,
-    },
-  });
-  return transporter;
-}
+const FROM = process.env.EMAIL_FROM || 'TaxPortal <onboarding@resend.dev>';
+const ADMIN = process.env.ADMIN_EMAIL;
 
 async function sendAdminNotification({ clientName, clientEmail, action, fileCount, dashboardUrl }) {
-  const t = getTransporter();
   const subject = action === 'submit'
     ? '[TaxPortal] ' + clientName + ' has submitted all documents'
     : '[TaxPortal] ' + clientName + ' uploaded ' + fileCount + ' file(s)';
 
-  await t.sendMail({
-    from: process.env.EMAIL_FROM,
-    to: process.env.ADMIN_EMAIL,
+  await resend.emails.send({
+    from: FROM,
+    to: ADMIN,
     subject,
     html: `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
@@ -49,9 +37,9 @@ async function sendAdminNotification({ clientName, clientEmail, action, fileCoun
 
 async function sendClientReminder({ clientName, clientEmail, portalUrl, pendingCount, completionPct }) {
   if (!clientEmail) return;
-  const t = getTransporter();
-  await t.sendMail({
-    from: process.env.EMAIL_FROM,
+
+  await resend.emails.send({
+    from: FROM,
     to: clientEmail,
     subject: 'Reminder: ' + pendingCount + ' document(s) pending for your ITR filing',
     html: `
@@ -76,9 +64,9 @@ async function sendClientReminder({ clientName, clientEmail, portalUrl, pendingC
 
 async function sendClientWelcome({ clientName, clientEmail, portalUrl, financialYear }) {
   if (!clientEmail) return;
-  const t = getTransporter();
-  await t.sendMail({
-    from: process.env.EMAIL_FROM,
+
+  await resend.emails.send({
+    from: FROM,
     to: clientEmail,
     subject: 'Your ITR document portal for FY ' + financialYear + ' is ready',
     html: `
@@ -88,7 +76,7 @@ async function sendClientWelcome({ clientName, clientEmail, portalUrl, financial
         </div>
         <div style="background: #f9f9f9; padding: 24px; border-radius: 0 0 8px 8px; border: 1px solid #e0e0e0;">
           <h2 style="color: #333; margin-top: 0;">Hi ${clientName},</h2>
-          <p style="color: #555;">Your personalized document collection portal for FY ${financialYear} is ready. Please use the link below to upload your documents.</p>
+          <p style="color: #555;">Your personalized document collection portal for FY ${financialYear} is ready.</p>
           <p style="color: #555;">You can:</p>
           <ul style="color: #555;">
             <li>Mark each document as Available / Pending / Not Applicable</li>
