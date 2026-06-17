@@ -29,6 +29,7 @@ router.post('/login', async (req, res) => {
     );
     res.json({ token, name: user.name, email: user.email });
   } catch (err) {
+    console.error('Login error:', err.message);
     res.status(500).json({ error: 'Server error' });
   }
 });
@@ -73,8 +74,8 @@ router.get('/clients', requireAdmin, async (req, res) => {
     const clientsRes = await pool.query(`
       SELECT c.id, c.name, c.email, c.phone, c.regime, c.status,
              c.financial_year, c.unique_token, c.last_activity, c.created_at,
-             COUNT(cr.id) AS answered_count,
-             COUNT(uf.id) AS file_count
+             COUNT(DISTINCT cr.id) AS answered_count,
+             COUNT(DISTINCT uf.id) AS file_count
       FROM clients c
       LEFT JOIN client_responses cr ON cr.client_id = c.id
       LEFT JOIN uploaded_files uf ON uf.client_id = c.id
@@ -88,10 +89,9 @@ router.get('/clients', requireAdmin, async (req, res) => {
       `SELECT COUNT(*) FROM clients c ${where}`, params
     );
 
-    // Get total checklist items per regime for progress %
     const itemCounts = await pool.query(`
       SELECT
-        COUNT(*) FILTER (WHERE true)            AS total_old,
+        COUNT(*) FILTER (WHERE true)             AS total_old,
         COUNT(*) FILTER (WHERE NOT is_deduction) AS total_new
       FROM checklist_items WHERE is_active=true
     `);
@@ -107,7 +107,7 @@ router.get('/clients', requireAdmin, async (req, res) => {
 
     res.json({ clients, total: parseInt(totalRes.rows[0].count) });
   } catch (err) {
-    console.error(err);
+    console.error('Get clients error:', err.message);
     res.status(500).json({ error: 'Server error' });
   }
 });
@@ -127,16 +127,15 @@ router.post('/clients', requireAdmin, async (req, res) => {
     const client = result.rows[0];
     const portalUrl = `${process.env.FRONTEND_URL}/client/${token}`;
 
-    // Send welcome email
     if (clientEmail) {
       email.sendClientWelcome({
         clientName: name, clientEmail, portalUrl, financialYear: financial_year,
-      }).catch(console.error);
+      }).catch(e => console.error('Welcome email error:', e.message));
     }
 
     res.json({ client, portalUrl });
   } catch (err) {
-    console.error(err);
+    console.error('Create client error:', err.message);
     res.status(500).json({ error: 'Server error' });
   }
 });
@@ -164,9 +163,21 @@ router.get('/clients/:id', requireAdmin, async (req, res) => {
        WHERE uf.client_id=$1 ORDER BY uf.uploaded_at DESC`, [id]
     );
 
+    const itemCounts = await pool.query(`
+      SELECT
+        COUNT(*) FILTER (WHERE true)             AS total_old,
+        COUNT(*) FILTER (WHERE NOT is_deduction) AS total_new
+      FROM checklist_items WHERE is_active=true
+    `);
+    const { total_old, total_new } = itemCounts.rows[0];
+    const total = client.regime === 'old' ? parseInt(total_old) : parseInt(total_new);
+    const done = responsesRes.rows.length;
+    client.completion_pct = Math.round((done / total) * 100) || 0;
+
     const portalUrl = `${process.env.FRONTEND_URL}/client/${client.unique_token}`;
     res.json({ client, responses: responsesRes.rows, files: filesRes.rows, portalUrl });
   } catch (err) {
+    console.error('Get client error:', err.message);
     res.status(500).json({ error: 'Server error' });
   }
 });
@@ -204,24 +215,36 @@ router.post('/clients/:id/remind', requireAdmin, async (req, res) => {
     const clientRes = await pool.query(`SELECT * FROM clients WHERE id=$1`, [req.params.id]);
     if (!clientRes.rows.length) return res.status(404).json({ error: 'Not found' });
     const client = clientRes.rows[0];
-    if (!client.email) return res.status(400).json({ error: 'Client has no email' });
+    if (!client.email) return res.status(400).json({ error: 'Client has no email address on file' });
 
-    const pendingRes = await pool.query(
-      `SELECT COUNT(*) FROM checklist_items ci
-       WHERE ci.is_active=true AND ($1='old' OR ci.is_deduction=false)
-       AND ci.id NOT IN (SELECT item_id FROM client_responses WHERE client_id=$2)`,
-      [client.regime, client.id]
+    const totalRes = await pool.query(
+      `SELECT COUNT(*) FROM checklist_items WHERE is_active=true AND ($1='old' OR is_deduction=false)`,
+      [client.regime]
     );
-    const pendingCount = parseInt(pendingRes.rows[0].count);
+    const total = parseInt(totalRes.rows[0].count);
+
+    const doneRes = await pool.query(
+      `SELECT COUNT(*) FROM client_responses WHERE client_id=$1`, [client.id]
+    );
+    const done = parseInt(doneRes.rows[0].count);
+    const completionPct = Math.round((done / total) * 100);
+    const pendingCount = total - done;
 
     const portalUrl = `${process.env.FRONTEND_URL}/client/${client.unique_token}`;
+
     await email.sendClientReminder({
-      clientName: client.name, clientEmail: client.email,
-      portalUrl, pendingCount, completionPct: 0,
+      clientName: client.name,
+      clientEmail: client.email,
+      portalUrl,
+      pendingCount,
+      completionPct,
     });
-    res.json({ ok: true });
+
+    console.log('Reminder sent to', client.email);
+    res.json({ ok: true, message: 'Reminder sent to ' + client.email });
   } catch (err) {
-    res.status(500).json({ error: 'Server error' });
+    console.error('Reminder error:', err.message);
+    res.status(500).json({ error: err.message });
   }
 });
 
