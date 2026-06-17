@@ -14,6 +14,9 @@ const adminRoutes  = require('./routes/admin');
 
 const app = express();
 
+// ── Trust Railway proxy
+app.set('trust proxy', 1);
+
 // ── Security middleware
 app.use(helmet());
 app.use(cors({
@@ -85,7 +88,7 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: err.message || 'Internal server error' });
 });
 
-const PORT = process.env.PORT || 4000;
+const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
   console.log(`\n🚀 Tax Portal API running on http://localhost:${PORT}`);
   console.log(`   Environment: ${process.env.NODE_ENV || 'development'}`);
