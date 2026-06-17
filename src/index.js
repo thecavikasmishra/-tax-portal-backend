@@ -12,6 +12,10 @@ const emailService = require('./services/email');
 const clientRoutes = require('./routes/client');
 const adminRoutes  = require('./routes/admin');
 
+const app = express();
+
+// ── Security middleware
+app.use(helmet());
 app.use(cors({
   origin: [
     process.env.FRONTEND_URL,
