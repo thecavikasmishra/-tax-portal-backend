@@ -12,12 +12,13 @@ const emailService = require('./services/email');
 const clientRoutes = require('./routes/client');
 const adminRoutes  = require('./routes/admin');
 
-const app = express();
-
-// ── Security middleware
-app.use(helmet());
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+  origin: [
+    process.env.FRONTEND_URL,
+    'https://tax-portal-frontend-three.vercel.app',
+    'https://tax-portal-frontend-git-main-the-ca.vercel.app',
+    'http://localhost:3000',
+  ],
   credentials: true,
 }));
 app.use(morgan('dev'));
